@@ -1,6 +1,6 @@
 name: emotion_control
 version: "1.0.6"
-description: "模型自报情绪的情绪层（@E 协议）：模型在回复第一行写 `@E v=.. a=.. d=..`，插件在 transform_llm_output 里剥掉这行并解析，累加成 temper/mood/emotion 三层状态，下一轮通过 pre_llm_call 以“词”注入（不给数字，避免模型把读数当 setpoint 形成闭环）。SQLite 持久化，agent 级状态 + per-user trust/familiarity，负向有不对称地板（-0.55）、单笔限幅、账本剪枝与幂等去重。与 emotion_control_plugin 不可同时启用（两者都会注入同一轮 user message，会互相打架且情绪读数不一致）。"
+description: "模型自报情绪的情绪层（@E 协议）：模型在回复首行写 `@E v=.. a=.. d=..`，插件在 transform_llm_output 中剥离该行并解析，累加为 temper/mood/emotion 三层状态，下一轮通过 pre_llm_call 以词语形式注入（不提供数值，避免模型把读数当作目标值形成闭环）。SQLite 持久化，agent 级状态 + 按用户 trust/familiarity，负向采用不对称下限（-0.55）、单笔限幅、账本剪枝与幂等去重。与其它会注入同类情绪状态的插件不可同时启用。"
 author: Muyuyurain
 provides_hooks:
   - pre_llm_call
