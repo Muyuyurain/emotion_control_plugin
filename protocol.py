@@ -45,6 +45,12 @@ BARE_TOKEN_LINE = re.compile(r"^[ \t]*(?:[vad]\s*=\s*\S+[ \t]*)+(?=\r?\n|$)")
 # 宁可难看，不可漏协议 —— 这是泄漏进群里的最后一道闸。
 LEAK_LINE = re.compile(r"(?m)^([ \t]*)@[ \t]*[Ee]\b")
 
+# 首行不是标签、但正文中间某一整行长得就是标签（模型把自报行写到正文下面了）。
+# 只在"这一行除了 @E 和 token 之外什么都没有"时才认：正文里正常讨论 "@E 怎么写" 不会被吃掉。
+LOOSE_TAG = re.compile(
+    r"(?m)^[ \t]*@E\b[ \t]*((?:[vad]\s*=\s*[+-]?\d+(?:\.\d+)?[ \t]*)*)\r?$"
+)
+
 # 只在"整段围栏里除标签外什么都没有"时启用：```\n@E v=+0.1\n```\n正文
 # 这样既不会把标签漏给用户，也不会拆散一段真正的代码块。
 # 量词必须有界：`{3,}` 配 `[^\n\r]*` 会在"超长纯反引号 + 无换行"上灾难性回溯
@@ -97,7 +103,18 @@ def parse(raw: str | None) -> ParseResult:
     if match is None and _fence_candidate(text):
         match = FENCE.match(text)
     if match is None:
-        # 首行不是标签：一个字都不动
+        # 首行不是标签：先看正文中间有没有一整行"长得就是标签"的，有就剥掉并记账
+        loose = LOOSE_TAG.search(text)
+        if loose is not None:
+            pairs = TOKEN.findall(loose.group(1) or "")
+            delta = _delta_of(pairs)
+            body = (text[:loose.start()] + text[loose.end():]).strip("\r\n")
+            if not body.strip():
+                return ParseResult(EMPTY_BODY_FALLBACK, delta, REASON_EMPTY_BODY)
+            if LEAK_LINE.search(body):
+                body = LEAK_LINE.sub(r"\1＠E", body)
+            return ParseResult(body, delta, _reason_of(delta, bool(pairs), body))
+        # 一个字都不动
         return ParseResult(text, None, REASON_NO_TAG)
 
     # ---- 先剥壳（无条件）----
