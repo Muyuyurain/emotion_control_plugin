@@ -19,6 +19,8 @@ def register(ctx) -> None:
     ctx.register_hook("pre_llm_call", hooks.pre_llm_call)
     # transform_llm_output：剥掉 @E 行并记账，返回正文
     ctx.register_hook("transform_llm_output", hooks.transform_llm_output)
+    # 中间消息（工具调用前说的话）不走上面的钩子，发送层再兜一道
+    hooks.install_send_relay()
     # post_tool_call：只记内存，给 event note 打标签
     ctx.register_hook("post_tool_call", hooks.post_tool_call)
     # on_session_end：情绪朝 temper 收一半

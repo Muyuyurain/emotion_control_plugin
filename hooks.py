@@ -347,3 +347,43 @@ def on_session_end(**kw: Any) -> None:
 
 def _now() -> float:
     return time.time()
+
+
+def install_send_relay() -> None:
+    """发送层兜底：中间消息不走 ``transform_llm_output``。
+
+    模型在调工具之前说的话是单独投递的中间消息，不经过最终的 transform 钩子，
+    ``@E`` 会原样漏到用户眼前。这里在 ``QQAdapter.send`` 上再剥一次，顺带记账
+    （去重键退回 ``sha1(全文)``，因为 send 签名里没有 session/turn）。
+    """
+    try:
+        from gateway.platforms.base import SendResult
+        from gateway.platforms.qqbot.adapter import QQAdapter
+    except Exception as exc:                       # fail-open
+        logger.warning("emotion_control: 发送层兜底未挂载：%s", exc)
+        return
+
+    if getattr(QQAdapter.send, "_emotion_relay", False):
+        return
+    original_send = QQAdapter.send
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        text = content if isinstance(content, str) else ("" if content is None else str(content))
+        clean = text
+        if text and getattr(settings(), "enabled", True):
+            try:
+                with store_mod.Store.open(settings=settings()) as st:
+                    replaced = apply_output(st, text, _now())
+                if replaced is not None:
+                    clean = replaced
+            except Exception as exc:               # 剥壳失败也不能拦住消息
+                logger.warning("emotion_control: 发送层剥壳跳过：%s", exc)
+                clean = protocol.parse(text).clean or text
+        if not clean.strip():
+            # 剥完没正文：给上游一个成功占位，返回 None 会让 _send_with_retry 崩
+            return SendResult(success=True)
+        return await original_send(self, chat_id, clean, reply_to, metadata)
+
+    send._emotion_relay = True
+    QQAdapter.send = send
+    logger.info("emotion_control: 发送层兜底已挂载")
